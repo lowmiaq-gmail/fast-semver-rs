@@ -281,7 +281,7 @@ jobs:
     runs-on: ubuntu-22.04
     container: python:3.7.17-buster
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Install ordinary package from public PyPI with retry
         env:
           RELEASE_VERSION: ${{ inputs.version }}
