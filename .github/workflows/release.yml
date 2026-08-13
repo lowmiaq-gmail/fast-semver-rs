@@ -282,17 +282,20 @@ jobs:
     container: python:3.7.17-buster
     steps:
       - uses: actions/checkout@v6
-      - name: Install ordinary package from public PyPI with retry
+      - name: Resolve public fallback for an unsupported native platform
         env:
           RELEASE_VERSION: ${{ inputs.version }}
         shell: bash
         run: |
           python -m pip install "pip<24"
-          for attempt in 1 2 3 4 5 6; do
-            python -m pip install --no-cache-dir --index-url https://pypi.org/simple "fast-semver-rs==$RELEASE_VERSION" && break
-            test "$attempt" = 6 && exit 1
-            sleep 20
-          done
+          mkdir public-fallback
+          python -m pip download --no-cache-dir --retries 10 --index-url https://pypi.org/simple \
+            --only-binary=:all: --no-deps --dest public-fallback \
+            --platform manylinux2014_i686 --python-version 37 --implementation cp --abi cp37m \
+            "fast-semver-rs==$RELEASE_VERSION"
+          wheels=(public-fallback/*-py3-none-any.whl)
+          test "${#wheels[@]}" = 1
+          python -m pip install --force-reinstall --no-deps "${wheels[0]}"
       - name: Prove automatic universal-wheel selection
         run: |
           python -c "import importlib.util,pkg_resources,semver; d=pkg_resources.get_distribution('fast-semver-rs'); assert d.version=='0.1.0'; assert importlib.util.find_spec('semver._native') is None; assert str(semver.Version.parse('1.2.3'))=='1.2.3'"
