@@ -1,6 +1,6 @@
 # Compatibility Evidence
 
-Current verdict: `READY_TO_RELEASE` locally; public release is not yet complete.
+Current verdict: `DONE`; public release `0.1.0` completed.
 
 Current evidence:
 
@@ -10,7 +10,9 @@ Current evidence:
 - OSV normalize/sort output digests equal;
 - exact native wheel parse/compare/match output digests equal with local median speedups `1.72x / 1.32x / 1.40x`;
 - exact native wheel OSV normalize/sort output digests equal with local median speedups `1.21x / 1.15x`;
-- native/fallback/sdist metadata and sanitation audit plus Twine checks pass.
+- native/fallback/sdist metadata and sanitation audit plus Twine checks pass;
+- five public native reinstall lanes pass;
+- the public universal fallback selected for an unsupported native platform passes `337` tests and the 10,000-case differential;
+- PyPI and GitHub Release distribution SHA256 sets are identical.
 
-Release CI must reproduce this across five native platforms, Python 3.7 fallback,
-public PyPI reinstalls and Release-last. Local evidence is not public release evidence.
+Release run: `31670657636`. GitHub Release target: `016a416da374e8ef6f37c3840aeb331f91d7798e`.

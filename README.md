@@ -9,7 +9,7 @@ optional minor/patch parsing, arbitrary-size integers, exact errors, bumps,
 matching, formatting, CLI and warnings remain in the frozen Python compatibility
 layer. The native parser is used only when it can preserve that contract.
 
-## Verified Build Lane evidence
+## Verified release evidence
 
 - frozen upstream tag `3.0.4` at commit `6adf8765f6e21910f1f0c13151ce84f32f8d431d`;
 - exact native and universal fallback wheel suites: `337 passed` each (`329` frozen upstream plus `8` candidate regressions);
@@ -19,7 +19,10 @@ layer. The native parser is used only when it can preserve that contract.
 - Google OSV 20,000-version exact-wheel evidence: normalize `1.21x`, sort `1.15x`, identical digests;
 - native wheel, universal fallback wheel and sdist passed strict metadata, `RECORD`, namespace, console-script, cache/test/binary sanitation and Twine checks.
 
-These are local Build Lane observations, not public release or universal speed claims. CI and public reinstall remain required before `DONE`.
+Release `0.1.0` reproduced the contract across five native platforms, published
+the exact seven-artifact set to PyPI, passed public native and universal-fallback
+reinstalls, and created the GitHub Release last. The timings remain observations
+from named runners and artifacts, not universal speed claims.
 
 ## Distribution limitation
 
