@@ -9,6 +9,7 @@ import random
 import statistics
 import subprocess
 import sys
+import tempfile
 import time
 
 
@@ -55,7 +56,7 @@ def invoke(python: Path, workload: str, oracle: bool) -> dict[str, object]:
     environment["PYTHONPATH"] = pythonpath(oracle)
     output = subprocess.check_output(
         [str(python.absolute()), __file__, "--probe", workload],
-        cwd="/tmp",
+        cwd=tempfile.gettempdir(),
         env=environment,
         text=True,
     )
