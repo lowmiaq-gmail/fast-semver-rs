@@ -1,6 +1,6 @@
 # Compatibility Evidence
 
-Current verdict: `DONE`; public release `0.1.0` completed.
+Current verdict: `DONE`; public release `0.1.1` completed.
 
 Current evidence:
 
@@ -14,5 +14,6 @@ Current evidence:
 - five public native reinstall lanes pass;
 - the public universal fallback selected for an unsupported native platform passes `337` tests and the 10,000-case differential;
 - PyPI and GitHub Release distribution SHA256 sets are identical.
+- the rendered PyPI page uses release-state-invariant wording and passed semantic read-back.
 
-Release run: `31670657636`. GitHub Release target: `016a416da374e8ef6f37c3840aeb331f91d7798e`.
+Release run: `31671636525`. GitHub Release target: `d11032c9c572480556275e5189a97bd8a6dad982`.
