@@ -45,9 +45,14 @@ def probe(workload: str) -> dict[str, object]:
     }
 
 
-def invoke(python: Path, workload: str) -> dict[str, object]:
+def pythonpath(oracle: bool) -> str:
+    roots = [ROOT / "upstream" / "src", ROOT] if oracle else [ROOT]
+    return os.pathsep.join(str(root) for root in roots)
+
+
+def invoke(python: Path, workload: str, oracle: bool) -> dict[str, object]:
     environment = os.environ.copy()
-    environment["PYTHONPATH"] = str(ROOT)
+    environment["PYTHONPATH"] = pythonpath(oracle)
     output = subprocess.check_output(
         [str(python.absolute()), __file__, "--probe", workload],
         cwd="/tmp",
@@ -57,9 +62,9 @@ def invoke(python: Path, workload: str) -> dict[str, object]:
     return json.loads(output)
 
 
-def suite(python: Path) -> str:
+def suite(python: Path, oracle: bool) -> str:
     environment = os.environ.copy()
-    environment["PYTHONPATH"] = str(ROOT)
+    environment["PYTHONPATH"] = pythonpath(oracle)
     completed = subprocess.run(
         [str(python.absolute()), "-m", "unittest", "-v", "consumer.osv.semver_index_test"],
         cwd=ROOT,
@@ -92,8 +97,8 @@ def main() -> None:
     evidence: dict[str, object] = {
         "consumer": "google/osv.dev semver_index",
         "consumer_commit": "918f43604b8db3b6ab1237be6de3d84588402e5a",
-        "oracle_suite": suite(args.oracle_python),
-        "candidate_suite": suite(args.candidate_python),
+        "oracle_suite": suite(args.oracle_python, True),
+        "candidate_suite": suite(args.candidate_python, False),
         "artifact": args.artifact.name,
         "artifact_sha256": hashlib.sha256(args.artifact.read_bytes()).hexdigest(),
         "pairs": args.pairs,
@@ -106,7 +111,7 @@ def main() -> None:
             order = ("oracle", "candidate") if index % 2 == 0 else ("candidate", "oracle")
             for implementation in order:
                 python = args.oracle_python if implementation == "oracle" else args.candidate_python
-                result = invoke(python, workload)
+                result = invoke(python, workload, implementation == "oracle")
                 samples[implementation].append(result["elapsed_ns"])
                 digests[implementation].add(result["digest"])
         if digests["oracle"] != digests["candidate"]:
