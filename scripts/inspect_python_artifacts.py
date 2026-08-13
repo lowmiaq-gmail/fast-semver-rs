@@ -38,6 +38,7 @@ def metadata(raw: bytes) -> tuple[object, ...]:
     assert value["Summary"] == SUMMARY
     assert value["Author"] == AUTHOR
     assert value["License-Expression"] == LICENSE
+    assert value["Description-Content-Type"] == "text/markdown; charset=UTF-8; variant=GFM"
     assert set(value.get_all("License-File", [])) == {"LICENSE"}
     assert not value.get_all("Dynamic", [])
     assert not value.get_all("Requires-Dist", [])
@@ -46,7 +47,8 @@ def metadata(raw: bytes) -> tuple[object, ...]:
     assert len(urls) == 4 and any(item.startswith("Homepage,") for item in urls)
     return (
         value["Name"], value["Version"], value["Summary"], value["Author"],
-        value["License-Expression"], str(SpecifierSet(value["Requires-Python"])),
+        value["License-Expression"], value["Description-Content-Type"],
+        str(SpecifierSet(value["Requires-Python"])),
         frozenset(value.get_all("Classifier", [])), frozenset(urls),
         value.get_payload().rstrip("\n"),
     )
