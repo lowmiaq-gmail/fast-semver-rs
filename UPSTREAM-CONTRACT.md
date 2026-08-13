@@ -9,6 +9,7 @@
 - PyPI sdist SHA256: `afc7d8c584a5ed0a11033af086e8af226a9c0b206f313e0301f8dd7b6b589602`
 - upstream Python support: `>=3.7`
 - license: BSD-3-Clause, retained in `LICENSE` and `upstream/LICENSE.txt`
+- test fixture portability: the two upstream test symlinks are materialized as ordinary files with equivalent code so Windows runners execute them.
 
 ## Required public contract
 
