@@ -49,6 +49,8 @@ jobs:
           oracle_python=oracle-venv/bin/python
           if [ ! -x "$oracle_python" ]; then oracle_python=oracle-venv/Scripts/python; fi
           python scripts/run_differential.py --oracle-python "$oracle_python" --candidate-python "$(python -c 'import sys; print(sys.executable)')" --cases 10000
+          wheel=(dist/*.whl)
+          python scripts/run_consumer_validation.py --oracle-python "$oracle_python" --candidate-python "$(python -c 'import sys; print(sys.executable)')" --artifact "${wheel[0]}" --output consumer-validation.json --pairs 1
 
   artifact:
     name: Native, fallback, and sdist contract
