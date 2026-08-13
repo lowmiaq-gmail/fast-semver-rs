@@ -1,0 +1,90 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  native:
+    name: Packaged native / ${{ matrix.label }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {label: linux-x86_64, os: ubuntu-22.04}
+          - {label: macos-arm64, os: macos-15}
+          - {label: windows-x86_64, os: windows-2022}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+          components: rustfmt, clippy
+      - name: Install tools
+        run: python -m pip install --upgrade pip "maturin==1.14.1" "pytest>=8,<10" pytest-randomly pytest-cov
+      - name: Rust gates
+        run: |
+          cargo fmt --all -- --check
+          cargo clippy --all-targets --all-features -- -D warnings
+          cargo test --all-targets
+      - name: Build and install exact native wheel
+        run: |
+          maturin build --release --locked --out dist
+          python -c "import glob,subprocess,sys; wheels=glob.glob('dist/*.whl'); assert len(wheels)==1,wheels; subprocess.check_call([sys.executable,'-m','pip','install','--force-reinstall','--no-deps',wheels[0]])"
+      - name: Candidate and complete frozen upstream suites
+        env:
+          FAST_SEMVER_EXPECT_NATIVE: "1"
+        run: python -m pytest -q tests upstream/tests
+      - name: Isolated 10,000-case differential
+        shell: bash
+        run: |
+          python -m venv oracle-venv
+          oracle_python=oracle-venv/bin/python
+          if [ ! -x "$oracle_python" ]; then oracle_python=oracle-venv/Scripts/python; fi
+          python scripts/run_differential.py --oracle-python "$oracle_python" --candidate-python "$(python -c 'import sys; print(sys.executable)')" --cases 10000
+
+  artifact:
+    name: Native, fallback, and sdist contract
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+      - name: Build complete local artifact set
+        run: |
+          python -m pip install --upgrade pip "maturin==1.14.1" build setuptools wheel packaging twine
+          maturin build --release --locked --out dist
+          python scripts/build_fallback_wheel.py --out-dir dist
+          maturin sdist --out dist
+      - name: Fail-closed artifact audit
+        run: |
+          python scripts/inspect_python_artifacts.py --artifact-dir dist --repository-root "$GITHUB_WORKSPACE" --expected-native-wheels 1
+          python -m twine check dist/*
+
+  fallback-python37:
+    name: Universal fallback / Python 3.7
+    runs-on: ubuntu-22.04
+    container: python:3.7.17-buster
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build, install, and verify fallback
+        shell: bash
+        run: |
+          python -m pip install "pip<24" "setuptools<69" wheel build "pytest==7.4.4" "pytest-cov<5" "pytest-randomly<4"
+          python scripts/build_fallback_wheel.py --out-dir dist
+          python -m pip install --force-reinstall --no-deps dist/*-py3-none-any.whl
+          python -c "import importlib.util,semver; assert importlib.util.find_spec('semver._native') is None; assert semver.Version.parse('1.2.3-rc.1').prerelease == 'rc.1'"
+          PYTHONDONTWRITEBYTECODE=1 python -m pytest -q tests upstream/tests
+          python -m venv oracle-venv
+          python scripts/run_differential.py --oracle-python oracle-venv/bin/python --candidate-python "$(python -c 'import sys; print(sys.executable)')" --cases 10000

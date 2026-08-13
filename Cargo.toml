@@ -1,0 +1,25 @@
+[package]
+name = "fast-semver-rs"
+version = "0.1.0"
+edition = "2021"
+license = "BSD-3-Clause"
+description = "Opt-in Rust-backed API replacement for Python semver 3.0.4"
+repository = "https://github.com/lowmiaq-gmail/fast-semver-rs"
+publish = false
+exclude = [
+  ".github/",
+  ".venv/",
+  ".pytest_cache/",
+  "benchmark.json",
+  "consumer-benchmark.json",
+  "dist/",
+  "target/",
+]
+
+[lib]
+name = "_native"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = { version = "0.24", features = ["abi3-py37"] }
+semver = "1.0"

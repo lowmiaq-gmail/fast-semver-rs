@@ -1,0 +1,334 @@
+name: Release to PyPI
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version from pyproject.toml and Cargo.toml
+        required: true
+        default: "0.1.0"
+        type: string
+      confirm_release:
+        description: Publish this version to PyPI and create a formal GitHub Release
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ inputs.version }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: Validate release request
+    runs-on: ubuntu-22.04
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Require main and explicit confirmation
+        env:
+          CONFIRMED: ${{ inputs.confirm_release }}
+        run: |
+          test "$GITHUB_REF" = "refs/heads/main"
+          test "$CONFIRMED" = "true"
+      - id: version
+        name: Match Python, Rust, and requested versions
+        env:
+          REQUESTED_VERSION: ${{ inputs.version }}
+        run: |
+          python - <<'PY'
+          import os, pathlib, tomllib
+          requested = os.environ["REQUESTED_VERSION"]
+          pyproject = tomllib.loads(pathlib.Path("pyproject.toml").read_text())
+          cargo = tomllib.loads(pathlib.Path("Cargo.toml").read_text())
+          assert requested == pyproject["project"]["version"] == cargo["package"]["version"] == "0.1.0"
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write("tag=v%s\n" % requested)
+          PY
+
+  wheels:
+    name: Wheel / ${{ matrix.label }}
+    needs: validate
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {label: linux-x86_64, os: ubuntu-22.04, target: x86_64, manylinux: "2014"}
+          - {label: linux-aarch64, os: ubuntu-24.04-arm, target: aarch64, manylinux: "2014"}
+          - {label: macos-arm64, os: macos-15, target: aarch64, manylinux: "off"}
+          - {label: macos-x86_64, os: macos-15-intel, target: x86_64, manylinux: "off"}
+          - {label: windows-x86_64, os: windows-2022, target: x64, manylinux: "off"}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Build locked native wheel
+        uses: PyO3/maturin-action@86b9d133d34bc1b40018696f782949dac11bd380
+        with:
+          command: build
+          maturin-version: v1.14.1
+          target: ${{ matrix.target }}
+          manylinux: ${{ matrix.manylinux }}
+          args: --release --locked --compatibility pypi --out dist
+      - name: Install and verify exact native wheel
+        run: |
+          python -m pip install "pytest>=8,<10" pytest-randomly pytest-cov
+          python -c "import glob,subprocess,sys; wheels=glob.glob('dist/*.whl'); assert len(wheels)==1,wheels; subprocess.check_call([sys.executable,'-m','pip','install','--force-reinstall','--no-deps',wheels[0]])"
+          python -c "import importlib.util,semver; native=importlib.util.find_spec('semver._native'); assert native and native.origin.endswith(('.so','.pyd')); assert str(semver.Version.parse('1.2.3-rc.1')) == '1.2.3-rc.1'"
+      - name: Candidate and complete frozen upstream suites
+        env:
+          FAST_SEMVER_EXPECT_NATIVE: "1"
+        run: python -m pytest -q tests upstream/tests
+      - name: Isolated 10,000-case differential on exact wheel
+        shell: bash
+        run: |
+          python -m venv oracle-venv
+          oracle_python=oracle-venv/bin/python
+          if [ ! -x "$oracle_python" ]; then oracle_python=oracle-venv/Scripts/python; fi
+          python scripts/run_differential.py --oracle-python "$oracle_python" --candidate-python "$(python -c 'import sys; print(sys.executable)')" --cases 10000
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release-wheel-${{ matrix.label }}
+          path: dist/*.whl
+          if-no-files-found: error
+
+  fallback:
+    name: Universal fallback wheel
+    needs: validate
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Build and verify universal wheel
+        run: |
+          python -m pip install build setuptools wheel "pytest>=8,<10" pytest-randomly pytest-cov
+          python scripts/build_fallback_wheel.py --out-dir dist
+          python -m pip install --force-reinstall --no-deps dist/*-py3-none-any.whl
+          python -c "import importlib.util,semver; assert importlib.util.find_spec('semver._native') is None; assert str(semver.Version.parse('1.2.3')) == '1.2.3'"
+          python -m pytest -q tests upstream/tests
+          python -m venv oracle-venv
+          python scripts/run_differential.py --oracle-python oracle-venv/bin/python --candidate-python "$(python -c 'import sys; print(sys.executable)')" --cases 10000
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release-wheel-universal-fallback
+          path: dist/*.whl
+          if-no-files-found: error
+
+  sdist:
+    name: Source distribution
+    needs: validate
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+      - name: Build and prove sdist
+        run: |
+          python -m pip install "maturin==1.14.1" "pytest>=8,<10" pytest-randomly pytest-cov
+          maturin sdist --out dist
+          python -m pip wheel --no-deps --wheel-dir sdist-wheel dist/*.tar.gz
+          python -m pip install --force-reinstall --no-deps sdist-wheel/*.whl
+          FAST_SEMVER_EXPECT_NATIVE=1 python -m pytest -q tests upstream/tests
+          python -m venv oracle-venv
+          python scripts/run_differential.py --oracle-python oracle-venv/bin/python --candidate-python "$(python -c 'import sys; print(sys.executable)')" --cases 10000
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release-sdist
+          path: dist/*.tar.gz
+          if-no-files-found: error
+
+  collect:
+    name: Audit immutable release set
+    needs: [validate, wheels, fallback, sdist]
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: release-*
+          path: dist
+          merge-multiple: true
+      - name: Audit exact release set
+        run: |
+          python -m pip install packaging twine
+          python scripts/inspect_python_artifacts.py --artifact-dir dist --repository-root "$GITHUB_WORKSPACE" --expected-native-wheels 5
+          python -m twine check dist/*
+      - uses: actions/upload-artifact@v7
+        with:
+          name: verified-release-distributions
+          path: |
+            dist/*.whl
+            dist/*.tar.gz
+          if-no-files-found: error
+
+  benchmark:
+    name: Exact-artifact micro and consumer evidence
+    needs: [validate, collect]
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - uses: actions/download-artifact@v8
+        with:
+          name: verified-release-distributions
+          path: dist
+      - name: Install exact immutable native wheel
+        shell: bash
+        run: |
+          wheels=(dist/*-cp37-abi3-macosx_11_0_arm64.whl)
+          test "${#wheels[@]}" = 1
+          python -m venv candidate-venv
+          candidate-venv/bin/python -m pip install --no-deps "${wheels[0]}"
+      - name: Measure micro and frozen Google OSV consumer
+        shell: bash
+        run: |
+          mkdir release-evidence
+          wheel=(dist/*-cp37-abi3-macosx_11_0_arm64.whl)
+          candidate-venv/bin/python scripts/run_benchmark.py --artifact "${wheel[0]}" --output release-evidence/release-benchmark.json --repeats 15
+          python -m venv oracle-venv
+          candidate-venv/bin/python scripts/run_consumer_validation.py --oracle-python oracle-venv/bin/python --candidate-python candidate-venv/bin/python --artifact "${wheel[0]}" --output release-evidence/release-consumer.json --pairs 12
+          python - <<'PY'
+          import json, os, pathlib
+          lines = ["# Exact Release Evidence", "", "- source commit: `%s`" % os.environ["GITHUB_SHA"]]
+          for filename in ("release-benchmark.json", "release-consumer.json"):
+              data = json.loads((pathlib.Path("release-evidence") / filename).read_text())
+              lines.extend(("- `%s` artifact: `%s`" % (filename, data["artifact"]), "- `%s` SHA256: `%s`" % (filename, data["artifact_sha256"])))
+          lines.extend(("", "Raw JSON contains all samples and is specific to this runner and artifact.", ""))
+          pathlib.Path("release-evidence/README.md").write_text("\n".join(lines))
+          PY
+      - uses: actions/upload-artifact@v7
+        with:
+          name: verified-release-evidence
+          path: release-evidence/*
+          if-no-files-found: error
+
+  publish-pypi:
+    name: Publish immutable set to PyPI
+    needs: [validate, collect, benchmark]
+    runs-on: ubuntu-22.04
+    environment:
+      name: pypi
+      url: https://pypi.org/project/fast-semver-rs/${{ inputs.version }}/
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: verified-release-distributions
+          path: dist
+      - uses: pypa/gh-action-pypi-publish@v1.14.2
+        with:
+          packages-dir: dist/
+
+  post-publish:
+    name: PyPI native install / ${{ matrix.label }}
+    needs: [validate, publish-pypi]
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {label: linux-x86_64, os: ubuntu-22.04}
+          - {label: linux-aarch64, os: ubuntu-24.04-arm}
+          - {label: macos-arm64, os: macos-15}
+          - {label: macos-x86_64, os: macos-15-intel}
+          - {label: windows-x86_64, os: windows-2022}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install from public PyPI with retry
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: >-
+          python -c "import os,subprocess,sys,time;
+          spec='fast-semver-rs=='+os.environ['RELEASE_VERSION'];
+          attempts=6;
+          [(subprocess.run([sys.executable,'-m','pip','install','--no-cache-dir','--index-url','https://pypi.org/simple',spec]).returncode==0 and sys.exit(0)) or time.sleep(20) for _ in range(attempts)];
+          sys.exit('public PyPI install failed')"
+      - name: Verify public native artifact, metadata, and behavior
+        shell: bash
+        run: |
+          python -m pip install "pytest>=8,<10" pytest-randomly pytest-cov
+          python -c "import importlib.metadata as im,importlib.util,semver; d=im.distribution('fast-semver-rs'); assert d.version=='0.1.0'; assert d.metadata['Summary']=='Opt-in Rust-backed API replacement for semver 3.0.4'; native=importlib.util.find_spec('semver._native'); assert native and native.origin.endswith(('.so','.pyd')); assert str(semver.Version.parse('1.2.3'))=='1.2.3'"
+          FAST_SEMVER_EXPECT_NATIVE=1 python -m pytest -q tests upstream/tests
+          python -m venv oracle-venv
+          oracle_python=oracle-venv/bin/python
+          if [ ! -x "$oracle_python" ]; then oracle_python=oracle-venv/Scripts/python; fi
+          python scripts/run_differential.py --oracle-python "$oracle_python" --candidate-python "$(python -c 'import sys; print(sys.executable)')" --cases 10000
+
+  public-fallback-python37:
+    name: PyPI fallback / Python 3.7
+    needs: [validate, publish-pypi]
+    runs-on: ubuntu-22.04
+    container: python:3.7.17-buster
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install ordinary package from public PyPI with retry
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        shell: bash
+        run: |
+          python -m pip install "pip<24"
+          for attempt in 1 2 3 4 5 6; do
+            python -m pip install --no-cache-dir --index-url https://pypi.org/simple "fast-semver-rs==$RELEASE_VERSION" && break
+            test "$attempt" = 6 && exit 1
+            sleep 20
+          done
+      - name: Prove automatic universal-wheel selection
+        run: |
+          python -c "import importlib.util,pkg_resources,semver; d=pkg_resources.get_distribution('fast-semver-rs'); assert d.version=='0.1.0'; assert importlib.util.find_spec('semver._native') is None; assert str(semver.Version.parse('1.2.3'))=='1.2.3'"
+          python -m pip install "pytest==7.4.4" "pytest-cov<5" "pytest-randomly<4"
+          PYTHONDONTWRITEBYTECODE=1 python -m pytest -q tests upstream/tests
+          python -m venv oracle-venv
+          python scripts/run_differential.py --oracle-python oracle-venv/bin/python --candidate-python "$(python -c 'import sys; print(sys.executable)')" --cases 10000
+
+  github-release:
+    name: Create verified formal GitHub Release
+    needs: [validate, collect, benchmark, post-publish, public-fallback-python37]
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/download-artifact@v8
+        with:
+          name: verified-release-distributions
+          path: dist
+      - uses: actions/download-artifact@v8
+        with:
+          name: verified-release-evidence
+          path: release-evidence
+      - name: Create checksums
+        run: |
+          mkdir release-assets
+          cp dist/* release-evidence/* release-assets/
+          cd release-assets
+          sha256sum * | sort -k2 > SHA256SUMS
+      - name: Create formal GitHub Release last
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.validate.outputs.tag }}
+        run: >-
+          gh release create "$RELEASE_TAG" release-assets/*
+          --target "$GITHUB_SHA"
+          --title "fast-semver-rs $RELEASE_TAG"
+          --notes-file docs/RELEASE-NOTES-0.1.0.md

@@ -1,0 +1,63 @@
+[build-system]
+requires = ["maturin>=1.14,<2"]
+build-backend = "maturin"
+
+[project]
+name = "fast-semver-rs"
+version = "0.1.0"
+description = "Opt-in Rust-backed API replacement for semver 3.0.4"
+readme = "README.md"
+requires-python = ">=3.7"
+license = "BSD-3-Clause"
+license-files = ["LICENSE"]
+authors = [{ name = "fast-semver-rs contributors" }]
+keywords = ["semver", "semantic-versioning", "version", "pyo3", "rust", "performance"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.7",
+  "Programming Language :: Python :: 3.8",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+  "Programming Language :: Rust",
+  "Typing :: Typed",
+  "Topic :: Software Development :: Libraries :: Python Modules",
+]
+
+[project.urls]
+Homepage = "https://github.com/lowmiaq-gmail/fast-semver-rs"
+Repository = "https://github.com/lowmiaq-gmail/fast-semver-rs"
+Issues = "https://github.com/lowmiaq-gmail/fast-semver-rs/issues"
+Changelog = "https://github.com/lowmiaq-gmail/fast-semver-rs/blob/main/CHANGELOG.md"
+
+[project.scripts]
+pysemver = "semver.cli:main"
+
+[tool.maturin]
+bindings = "pyo3"
+module-name = "semver._native"
+python-source = "python"
+features = ["pyo3/extension-module"]
+exclude = [
+  ".venv/**",
+  "**/__pycache__/**",
+  "**/*.pyc",
+  "benchmark.json",
+  "consumer-benchmark.json",
+  "dist/**",
+  "target/**",
+]
+
+# Maturin 1.14's generated Rust SBOM embeds the build checkout's absolute path.
+# Cargo.lock remains in the sdist; enable the SBOM again only after its local
+# path identifiers can be normalized without corrupting dependency references.
+[tool.maturin.sbom]
+rust = false
+auditwheel = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests", "upstream/tests"]
