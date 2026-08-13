@@ -17,7 +17,7 @@ from packaging.specifiers import SpecifierSet
 
 
 NAME = "fast-semver-rs"
-VERSION = "0.1.0"
+VERSION = "0.1.1"
 PYTHON = ">=3.7"
 SUMMARY = "Opt-in Rust-backed API replacement for semver 3.0.4"
 AUTHOR = "fast-semver-rs contributors"

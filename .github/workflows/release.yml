@@ -6,7 +6,7 @@ on:
       version:
         description: Version from pyproject.toml and Cargo.toml
         required: true
-        default: "0.1.0"
+        default: "0.1.1"
         type: string
       confirm_release:
         description: Publish this version to PyPI and create a formal GitHub Release
@@ -48,7 +48,7 @@ jobs:
           requested = os.environ["REQUESTED_VERSION"]
           pyproject = tomllib.loads(pathlib.Path("pyproject.toml").read_text())
           cargo = tomllib.loads(pathlib.Path("Cargo.toml").read_text())
-          assert requested == pyproject["project"]["version"] == cargo["package"]["version"] == "0.1.0"
+          assert requested == pyproject["project"]["version"] == cargo["package"]["version"]
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
               output.write("tag=v%s\n" % requested)
           PY
@@ -265,10 +265,12 @@ jobs:
           [(subprocess.run([sys.executable,'-m','pip','install','--no-cache-dir','--index-url','https://pypi.org/simple',spec]).returncode==0 and sys.exit(0)) or time.sleep(20) for _ in range(attempts)];
           sys.exit('public PyPI install failed')"
       - name: Verify public native artifact, metadata, and behavior
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
         shell: bash
         run: |
           python -m pip install "pytest>=8,<10" pytest-randomly pytest-cov
-          python -c "import importlib.metadata as im,importlib.util,semver; d=im.distribution('fast-semver-rs'); assert d.version=='0.1.0'; assert d.metadata['Summary']=='Opt-in Rust-backed API replacement for semver 3.0.4'; native=importlib.util.find_spec('semver._native'); assert native and native.origin.endswith(('.so','.pyd')); assert str(semver.Version.parse('1.2.3'))=='1.2.3'"
+          python -c "import importlib.metadata as im,importlib.util,os,semver; d=im.distribution('fast-semver-rs'); assert d.version==os.environ['RELEASE_VERSION']; assert d.metadata['Summary']=='Opt-in Rust-backed API replacement for semver 3.0.4'; native=importlib.util.find_spec('semver._native'); assert native and native.origin.endswith(('.so','.pyd')); assert str(semver.Version.parse('1.2.3'))=='1.2.3'"
           FAST_SEMVER_EXPECT_NATIVE=1 python -m pytest -q tests upstream/tests
           python -m venv oracle-venv
           oracle_python=oracle-venv/bin/python
@@ -297,8 +299,10 @@ jobs:
           test "${#wheels[@]}" = 1
           python -m pip install --force-reinstall --no-deps "${wheels[0]}"
       - name: Prove automatic universal-wheel selection
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
         run: |
-          python -c "import importlib.util,pkg_resources,semver; d=pkg_resources.get_distribution('fast-semver-rs'); assert d.version=='0.1.0'; assert importlib.util.find_spec('semver._native') is None; assert str(semver.Version.parse('1.2.3'))=='1.2.3'"
+          python -c "import importlib.util,os,pkg_resources,semver; d=pkg_resources.get_distribution('fast-semver-rs'); assert d.version==os.environ['RELEASE_VERSION']; assert importlib.util.find_spec('semver._native') is None; assert str(semver.Version.parse('1.2.3'))=='1.2.3'"
           python -m pip install "pytest==7.4.4" "pytest-cov<5" "pytest-randomly<4"
           PYTHONDONTWRITEBYTECODE=1 python -m pytest -q tests upstream/tests
           python -m venv oracle-venv
@@ -330,8 +334,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ needs.validate.outputs.tag }}
+          RELEASE_VERSION: ${{ inputs.version }}
         run: >-
           gh release create "$RELEASE_TAG" release-assets/*
           --target "$GITHUB_SHA"
           --title "fast-semver-rs $RELEASE_TAG"
-          --notes-file docs/RELEASE-NOTES-0.1.0.md
+          --notes-file "docs/RELEASE-NOTES-${RELEASE_VERSION}.md"

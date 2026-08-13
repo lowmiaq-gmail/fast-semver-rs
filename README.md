@@ -19,10 +19,10 @@ layer. The native parser is used only when it can preserve that contract.
 - Google OSV 20,000-version exact-wheel evidence: normalize `1.21x`, sort `1.15x`, identical digests;
 - native wheel, universal fallback wheel and sdist passed strict metadata, `RECORD`, namespace, console-script, cache/test/binary sanitation and Twine checks.
 
-Release `0.1.0` reproduced the contract across five native platforms, published
-the exact seven-artifact set to PyPI, passed public native and universal-fallback
-reinstalls, and created the GitHub Release last. The timings remain observations
-from named runners and artifacts, not universal speed claims.
+Every release is gated on reproducing this contract across five native
+platforms, publishing one audited seven-artifact set, public native and
+universal-fallback reinstalls, and creating the GitHub Release last. The timings
+remain observations from named runners and artifacts, not universal speed claims.
 
 ## Distribution limitation
 
