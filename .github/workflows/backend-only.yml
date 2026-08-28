@@ -1,0 +1,71 @@
+name: Backend-only wheel matrix
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  backend-wheel:
+    name: Backend wheel / ${{ matrix.label }} / Python ${{ matrix.python-version }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {label: linux-x86_64, os: ubuntu-22.04, python-version: "3.10"}
+          - {label: linux-x86_64, os: ubuntu-22.04, python-version: "3.14"}
+          - {label: linux-arm64, os: ubuntu-24.04-arm, python-version: "3.10"}
+          - {label: linux-arm64, os: ubuntu-24.04-arm, python-version: "3.14"}
+          - {label: macos-arm64, os: macos-15, python-version: "3.10"}
+          - {label: macos-arm64, os: macos-15, python-version: "3.14"}
+          - {label: macos-x86_64, os: macos-15-intel, python-version: "3.10"}
+          - {label: macos-x86_64, os: macos-15-intel, python-version: "3.14"}
+          - {label: windows-x86_64, os: windows-2022, python-version: "3.10"}
+          - {label: windows-x86_64, os: windows-2022, python-version: "3.14"}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+      - name: Install backend build tools
+        shell: bash
+        run: python -m pip install --upgrade pip "maturin==1.14.1"
+      - name: Build backend-only wheel
+        shell: bash
+        run: maturin build --release --locked --manifest-path backend/Cargo.toml --out dist-backend
+      - name: Install and prove backend-only namespace
+        shell: bash
+        run: |
+          python -m venv verify-venv
+          verify_python=verify-venv/bin/python
+          if [ ! -x "$verify_python" ]; then verify_python=verify-venv/Scripts/python; fi
+          "$verify_python" -m pip install --upgrade pip
+          "$verify_python" -m pip install --force-reinstall --no-deps dist-backend/*.whl
+          VERIFY_PYTHON="$verify_python" python - <<'PY'
+          import os
+          import subprocess
+          import sys
+          import zipfile
+          from pathlib import Path
+
+          wheel = next(Path("dist-backend").glob("*.whl"))
+          with zipfile.ZipFile(wheel) as archive:
+              names = archive.namelist()
+              assert any(name.startswith("fast_semver_rs_backend/") for name in names)
+              assert not any(name.startswith("semver/") for name in names)
+          verify_python = os.environ["VERIFY_PYTHON"]
+          subprocess.check_call([verify_python, "-c", "import importlib.util; assert importlib.util.find_spec('semver') is None"])
+          probe = "import fast_semver_rs_backend as b; assert b.parse_parts('1.2.3-rc.1+build.4') == (1, 2, 3, 'rc.1', 'build.4'); print('backend_active=' + b.parse_parts.__module__)"
+          subprocess.check_call([verify_python, "-c", probe])
+          PY
+      - uses: actions/upload-artifact@v7
+        with:
+          name: backend-${{ matrix.label }}-py${{ matrix.python-version }}
+          path: dist-backend/*.whl
+          if-no-files-found: error
