@@ -82,10 +82,8 @@ class Version:
     #: The names of the different parts of a version
     NAMES: ClassVar[Tuple[str, ...]] = tuple([item[1:] for item in __slots__])
 
-    #: Regex for number in a build
-    _LAST_NUMBER: ClassVar[Pattern[str]] = re.compile(r"(?:[^\d]*(\d+)[^\d]*)+")
     #: Regex for number in a prerelease
-    _LAST_PRERELEASE: ClassVar[Pattern[str]] = re.compile(r"^(.*\.)?(\d+)$")
+    _LAST_NUMBER: ClassVar[Pattern[str]] = re.compile(r"(?:[^\d]*(\d+)[^\d]*)+")
     #: Regex template for a semver version
     _REGEX_TEMPLATE: ClassVar[
         str
@@ -253,23 +251,6 @@ class Version:
         yield from self.to_tuple()
 
     @staticmethod
-    def _increment_prerelease(string: str) -> str:
-        """
-        Check if the last part of a dot-separated string is numeric. If yes,
-        increase them. Else, add '.0'
-
-        :param string: the prerelease version to increment
-        :return: the incremented string
-        """
-        match = Version._LAST_PRERELEASE.search(string)
-        if match:
-            next_ = str(int(match.group(2)) + 1)
-            string = match.group(1) + next_ if match.group(1) else next_
-        else:
-            string += ".0"
-        return string
-
-    @staticmethod
     def _increment_string(string: str) -> str:
         """
         Look for the last sequence of number(s) in a string and increment.
@@ -329,52 +310,35 @@ class Version:
         cls = type(self)
         return cls(self._major, self._minor, self._patch + 1)
 
-    def bump_prerelease(
-        self,
-        token: Optional[str] = "rc",
-        bump_when_empty: Optional[bool] = False
-    ) -> "Version":
+    def bump_prerelease(self, token: Optional[str] = "rc") -> "Version":
         """
         Raise the prerelease part of the version, return a new object but leave
         self untouched.
-
-        .. versionchanged:: 3.1.0
-           Parameter `bump_when_empty` added. When set to true, bumps the patch version
-           when called with a version that has no prerelease segment, so the return
-           value will be considered a newer version.
-
-           Adds `.0` to the prerelease if the last part of the dot-separated
-           prerelease is not a number.
 
         :param token: defaults to ``'rc'``
         :return: new :class:`Version` object with the raised prerelease part.
             The original object is not modified.
 
-        >>> ver = semver.Version.parse("3.4.5")
+        >>> ver = semver.parse("3.4.5")
         >>> ver.bump_prerelease().prerelease
-        'rc.1'
+        'rc.2'
         >>> ver.bump_prerelease('').prerelease
         '1'
         >>> ver.bump_prerelease(None).prerelease
         'rc.1'
-        >>> str(ver.bump_prerelease(bump_when_empty=True))
-        '3.4.6-rc.1'
         """
         cls = type(self)
-        patch = self._patch
         if self._prerelease is not None:
-            prerelease = cls._increment_prerelease(self._prerelease)
+            prerelease = self._prerelease
+        elif token == "":
+            prerelease = "0"
+        elif token is None:
+            prerelease = "rc.0"
         else:
-            if bump_when_empty:
-                patch += 1
-            if token == "":
-                prerelease = "1"
-            elif token is None:
-                prerelease = "rc.1"
-            else:
-                prerelease = str(token) + ".1"
+            prerelease = str(token) + ".0"
 
-        return cls(self._major, self._minor, patch, prerelease)
+        prerelease = cls._increment_string(prerelease)
+        return cls(self._major, self._minor, self._patch, prerelease)
 
     def bump_build(self, token: Optional[str] = "build") -> "Version":
         """
@@ -400,6 +364,18 @@ build='build.10')
         else:
             build = str(token) + ".0"
 
+        # self._build or (token or "build") + ".0"
+        build = cls._increment_string(build)
+        if self._build is not None:
+            build = self._build
+        elif token == "":
+            build = "0"
+        elif token is None:
+            build = "build.0"
+        else:
+            build = str(token) + ".0"
+
+        # self._build or (token or "build") + ".0"
         build = cls._increment_string(build)
         return cls(self._major, self._minor, self._patch, self._prerelease, build)
 
@@ -476,7 +452,7 @@ build='build.10')
                 f"Invalid part. Expected one of {validparts}, but got {part!r}"
             )
         version = self
-        if version.prerelease and (
+        if (version.prerelease or version.build) and (
             part == "patch"
             or (part == "minor" and version.patch == 0)
             or (part == "major" and version.minor == version.patch == 0)
@@ -486,12 +462,10 @@ build='build.10')
         # Only check the main parts:
         if part in cls.NAMES[:3]:
             return getattr(version, "bump_" + part)()
-        else:
-            if version.prerelease is not None and prerelease_token:
-                current_token = version.prerelease.split(".")[0]
-                if current_token != prerelease_token:
-                    return version.replace(prerelease=f"{prerelease_token}.1", build=None)
-            return version.bump_prerelease(prerelease_token, bump_when_empty=True)
+
+        if not version.prerelease:
+            version = version.bump_patch()
+        return version.bump_prerelease(prerelease_token)
 
     @_comparator
     def __eq__(self, other: Comparable) -> bool:  # type: ignore
