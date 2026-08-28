@@ -42,6 +42,15 @@ Do not install both distributions together. Roll back with
 An upstream optional native backend is the preferred broad-adoption path; no
 upstream acceptance is claimed.
 
+## Backend-only qualification
+
+The `core/` crate is shared by the standalone binding and the backend-only
+binding under `backend/`. The latter builds the `fast-semver-rs-backend`
+distribution and exposes only `fast_semver_rs_backend.parse_parts`; it does
+not install the `semver` package or claim the `semver` distribution name.
+The upstream adapter remains optional and falls back to the unchanged Python
+implementation when the backend is absent.
+
 ## Development
 
 ```bash
@@ -49,6 +58,9 @@ uv venv --python 3.14 .venv
 uv pip install --python .venv/bin/python maturin pytest pytest-cov pytest-randomly
 .venv/bin/maturin develop --release
 .venv/bin/python -m pytest -q tests upstream/tests
+
+# Build the coexistence-safe backend-only wheel.
+.venv/bin/maturin build --release --manifest-path backend/Cargo.toml --out dist-backend
 ```
 
 BSD-3-Clause. See `THIRD_PARTY_NOTICES.md` before redistribution.

@@ -50,6 +50,7 @@ exclude = [
   "consumer-benchmark.json",
   "dist/**",
   "target/**",
+  "backend/**",
 ]
 
 # Maturin 1.14's generated Rust SBOM embeds the build checkout's absolute path.

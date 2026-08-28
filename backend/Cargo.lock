@@ -22,7 +22,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "fast-semver-rs"
+name = "fast-semver-rs-backend"
 version = "0.1.1"
 dependencies = [
  "fast-semver-core",

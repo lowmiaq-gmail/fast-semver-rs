@@ -1,0 +1,33 @@
+[build-system]
+requires = ["maturin>=1.14,<2"]
+build-backend = "maturin"
+
+[project]
+name = "fast-semver-rs-backend"
+version = "0.1.1"
+description = "Backend-only Rust parser for python-semver"
+requires-python = ">=3.7"
+license = "BSD-3-Clause"
+license-files = ["LICENSE"]
+authors = [{ name = "fast-semver-rs contributors" }]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Rust",
+  "Typing :: Typed",
+]
+
+[project.urls]
+Homepage = "https://github.com/lowmiaq-gmail/fast-semver-rs"
+Repository = "https://github.com/lowmiaq-gmail/fast-semver-rs"
+
+[tool.maturin]
+bindings = "pyo3"
+module-name = "fast_semver_rs_backend._native"
+python-source = "python"
+features = ["pyo3/extension-module"]
+exclude = [
+  ".venv/**",
+  "**/__pycache__/**",
+  "**/*.pyc",
+  "target/**",
+]

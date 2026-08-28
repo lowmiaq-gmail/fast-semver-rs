@@ -11,6 +11,16 @@
 - license: BSD-3-Clause, retained in `LICENSE` and `upstream/LICENSE.txt`
 - test fixture portability: the two upstream test symlinks are materialized as ordinary files with equivalent code so Windows runners execute them.
 
+## Latest-main semantic delta
+
+The qualification branch also tracks `python-semver` master at
+`99d2032c8f7ef4895df25053ddcdcb85d5460326` (version `3.1.0`). Relative to the
+frozen `3.0.4` release, the verified behavior changes are the
+`bump_prerelease`/`next_version` semantics from upstream PR #462: nonnumeric
+prerelease suffixes gain `.0`, `bump_when_empty` can advance the patch, and
+build-only versions are bumped instead of merely losing build metadata. The
+frozen `upstream/` directory remains unchanged as the historical 3.0.4 oracle.
+
 ## Required public contract
 
 - import/module paths, `Version` and alias `VersionInfo`, metadata constants and `py.typed`;

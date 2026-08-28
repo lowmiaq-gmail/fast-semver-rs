@@ -1,5 +1,6 @@
 .venv/
 target/
+backend/target/
 dist/
 .pytest_cache/
 __pycache__/
