@@ -1,0 +1,10 @@
+[package]
+name = "fast-semver-core"
+version = "0.1.1"
+edition = "2021"
+license = "BSD-3-Clause"
+description = "Shared Rust SemVer parsing core"
+publish = false
+
+[dependencies]
+semver = "1.0"

@@ -1,0 +1,16 @@
+[package]
+name = "fast-semver-rs-backend"
+version = "0.1.1"
+edition = "2021"
+license = "BSD-3-Clause"
+description = "Backend-only Rust SemVer parser for python-semver"
+repository = "https://github.com/lowmiaq-gmail/fast-semver-rs"
+publish = false
+
+[lib]
+name = "_native"
+crate-type = ["cdylib"]
+
+[dependencies]
+fast-semver-core = { path = "../core" }
+pyo3 = { version = "0.24", features = ["abi3-py37"] }
