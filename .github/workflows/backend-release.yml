@@ -6,7 +6,7 @@ on:
       version:
         description: Backend version from backend/pyproject.toml
         required: true
-        default: "0.1.1"
+        default: "0.1.2"
         type: string
       confirm_release:
         description: Publish backend to PyPI
@@ -108,9 +108,30 @@ jobs:
           path: dist/*.whl
           if-no-files-found: error
 
+  sdist:
+    name: Backend sdist
+    needs: validate
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Build backend sdist
+        uses: PyO3/maturin-action@86b9d133d34bc1b40018696f782949dac11bd380
+        with:
+          command: sdist
+          maturin-version: v1.14.1
+          args: --manifest-path backend/Cargo.toml --out dist
+      - uses: actions/upload-artifact@v7
+        with:
+          name: backend-release-sdist
+          path: dist/*.tar.gz
+          if-no-files-found: error
+
   collect:
     name: Audit backend release set
-    needs: [validate, wheels]
+    needs: [validate, wheels, sdist]
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v6
@@ -119,23 +140,27 @@ jobs:
           pattern: backend-release-*
           path: dist
           merge-multiple: true
-      - name: Audit backend wheels
+      - name: Audit backend artifacts
         run: |
           python -m pip install packaging twine
           python -m twine check dist/*
           python - <<'PY'
           import pathlib
           wheels = list(pathlib.Path("dist").glob("*.whl"))
+          sdists = list(pathlib.Path("dist").glob("*.tar.gz"))
           assert len(wheels) == 5, f"Expected 5 wheels, got {len(wheels)}"
+          assert len(sdists) == 1, f"Expected 1 sdist, got {len(sdists)}"
           for wheel in wheels:
               assert "fast_semver_rs_backend" in wheel.name
               assert "semver-" not in wheel.name or "fast_semver" in wheel.name
-          print(f"✓ {len(wheels)} backend wheels verified")
+          for sdist in sdists:
+              assert "fast_semver_rs_backend" in sdist.name
+          print(f"[OK] {len(wheels)} backend wheels + {len(sdists)} sdist verified")
           PY
       - uses: actions/upload-artifact@v7
         with:
           name: verified-backend-release
-          path: dist/*.whl
+          path: dist/*
           if-no-files-found: error
 
   publish-pypi:
@@ -186,5 +211,5 @@ jobs:
           RELEASE_VERSION: ${{ inputs.version }}
         shell: bash
         run: |
-          python -c "import fast_semver_rs_backend as b, importlib.metadata as im, os; assert im.distribution('fast-semver-rs-backend').version == os.environ['RELEASE_VERSION']; assert b.parse_parts('1.2.3-alpha.1') == (1, 2, 3, 'alpha.1', None); print('✓ Backend verified')"
-          python -c "import importlib.util; assert importlib.util.find_spec('semver') is None; print('✓ Backend does not provide semver namespace')"
+          python -c "import fast_semver_rs_backend as b, importlib.metadata as im, os; assert im.distribution('fast-semver-rs-backend').version == os.environ['RELEASE_VERSION']; assert b.parse_parts('1.2.3-alpha.1') == (1, 2, 3, 'alpha.1', None); print('[OK] Backend verified')"
+          python -c "import importlib.util; assert importlib.util.find_spec('semver') is None; print('[OK] Backend does not provide semver namespace')"
