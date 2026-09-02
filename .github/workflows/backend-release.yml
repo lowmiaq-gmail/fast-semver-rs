@@ -1,0 +1,190 @@
+name: Backend Release to PyPI
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Backend version from backend/pyproject.toml
+        required: true
+        default: "0.1.1"
+        type: string
+      confirm_release:
+        description: Publish backend to PyPI
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backend-release-${{ inputs.version }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: Validate backend release request
+    runs-on: ubuntu-22.04
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Require explicit confirmation
+        env:
+          CONFIRMED: ${{ inputs.confirm_release }}
+        run: test "$CONFIRMED" = "true"
+      - id: version
+        name: Match backend Python, Rust, and requested versions
+        env:
+          REQUESTED_VERSION: ${{ inputs.version }}
+        run: |
+          python - <<'PY'
+          import os, pathlib, tomllib
+          requested = os.environ["REQUESTED_VERSION"]
+          pyproject = tomllib.loads(pathlib.Path("backend/pyproject.toml").read_text())
+          cargo = tomllib.loads(pathlib.Path("backend/Cargo.toml").read_text())
+          assert requested == pyproject["project"]["version"] == cargo["package"]["version"]
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write("tag=backend-v%s\n" % requested)
+          PY
+
+  wheels:
+    name: Backend wheel / ${{ matrix.label }}
+    needs: validate
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {label: linux-x86_64, os: ubuntu-22.04, target: x86_64, manylinux: "2014"}
+          - {label: linux-aarch64, os: ubuntu-24.04-arm, target: aarch64, manylinux: "2014"}
+          - {label: macos-arm64, os: macos-15, target: aarch64, manylinux: "off"}
+          - {label: macos-x86_64, os: macos-15-intel, target: x86_64, manylinux: "off"}
+          - {label: windows-x86_64, os: windows-2022, target: x64, manylinux: "off"}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Build locked backend wheel
+        uses: PyO3/maturin-action@86b9d133d34bc1b40018696f782949dac11bd380
+        with:
+          command: build
+          maturin-version: v1.14.1
+          target: ${{ matrix.target }}
+          manylinux: ${{ matrix.manylinux }}
+          args: --release --locked --compatibility pypi --manifest-path backend/Cargo.toml --out dist
+      - name: Install and verify backend wheel
+        shell: bash
+        run: |
+          python -m venv verify-venv
+          verify_python=verify-venv/bin/python
+          if [ ! -x "$verify_python" ]; then verify_python=verify-venv/Scripts/python; fi
+          "$verify_python" -m pip install --upgrade pip
+          "$verify_python" -m pip install --force-reinstall --no-deps dist/*.whl
+          VERIFY_PYTHON="$verify_python" python - <<'PY'
+          import os
+          import subprocess
+          import sys
+          import zipfile
+          from pathlib import Path
+
+          wheel = next(Path("dist").glob("*.whl"))
+          with zipfile.ZipFile(wheel) as archive:
+              names = archive.namelist()
+              assert any(name.startswith("fast_semver_rs_backend/") for name in names), "Missing backend namespace"
+              assert not any(name.startswith("semver/") for name in names), "Backend must not provide semver namespace"
+          verify_python = os.environ["VERIFY_PYTHON"]
+          subprocess.check_call([verify_python, "-c", "import importlib.util; assert importlib.util.find_spec('semver') is None"])
+          probe = "import fast_semver_rs_backend as b; assert b.parse_parts('1.2.3-rc.1+build.4') == (1, 2, 3, 'rc.1', 'build.4'); print('OK')"
+          subprocess.check_call([verify_python, "-c", probe])
+          PY
+      - uses: actions/upload-artifact@v7
+        with:
+          name: backend-release-wheel-${{ matrix.label }}
+          path: dist/*.whl
+          if-no-files-found: error
+
+  collect:
+    name: Audit backend release set
+    needs: [validate, wheels]
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: backend-release-*
+          path: dist
+          merge-multiple: true
+      - name: Audit backend wheels
+        run: |
+          python -m pip install packaging twine
+          python -m twine check dist/*
+          python - <<'PY'
+          import pathlib
+          wheels = list(pathlib.Path("dist").glob("*.whl"))
+          assert len(wheels) == 5, f"Expected 5 wheels, got {len(wheels)}"
+          for wheel in wheels:
+              assert "fast_semver_rs_backend" in wheel.name
+              assert "semver-" not in wheel.name or "fast_semver" in wheel.name
+          print(f"✓ {len(wheels)} backend wheels verified")
+          PY
+      - uses: actions/upload-artifact@v7
+        with:
+          name: verified-backend-release
+          path: dist/*.whl
+          if-no-files-found: error
+
+  publish-pypi:
+    name: Publish backend to PyPI
+    needs: [validate, collect]
+    runs-on: ubuntu-22.04
+    environment:
+      name: pypi
+      url: https://pypi.org/project/fast-semver-rs-backend/${{ inputs.version }}/
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: verified-backend-release
+          path: dist
+      - uses: pypa/gh-action-pypi-publish@v1.14.2
+        with:
+          packages-dir: dist/
+
+  verify-pypi:
+    name: Verify backend on PyPI / ${{ matrix.label }}
+    needs: [validate, publish-pypi]
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {label: linux-x86_64, os: ubuntu-22.04, python: "3.10"}
+          - {label: linux-aarch64, os: ubuntu-24.04-arm, python: "3.10"}
+          - {label: macos-arm64, os: macos-15, python: "3.12"}
+          - {label: windows-x86_64, os: windows-2022, python: "3.12"}
+    steps:
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install from PyPI with retry
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: >-
+          python -c "import os,subprocess,sys,time;
+          spec='fast-semver-rs-backend=='+os.environ['RELEASE_VERSION'];
+          attempts=8;
+          [(subprocess.run([sys.executable,'-m','pip','install','--no-cache-dir','--index-url','https://pypi.org/simple',spec]).returncode==0 and sys.exit(0)) or time.sleep(15) for _ in range(attempts)];
+          sys.exit('PyPI install failed')"
+      - name: Verify backend package
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        shell: bash
+        run: |
+          python -c "import fast_semver_rs_backend as b, importlib.metadata as im, os; assert im.distribution('fast-semver-rs-backend').version == os.environ['RELEASE_VERSION']; assert b.parse_parts('1.2.3-alpha.1') == (1, 2, 3, 'alpha.1', None); print('✓ Backend verified')"
+          python -c "import importlib.util; assert importlib.util.find_spec('semver') is None; print('✓ Backend does not provide semver namespace')"
