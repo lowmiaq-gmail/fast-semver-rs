@@ -23,7 +23,7 @@ dependencies = [
 
 [[package]]
 name = "fast-semver-rs-backend"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "fast-semver-core",
  "pyo3",
