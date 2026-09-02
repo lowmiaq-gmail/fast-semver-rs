@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "fast-semver-rs-backend"
-version = "0.1.1"
+version = "0.1.2"
 description = "Backend-only Rust parser for python-semver"
 requires-python = ">=3.7"
 license = "BSD-3-Clause"
