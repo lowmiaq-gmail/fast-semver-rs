@@ -32,24 +32,20 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
       - name: Require explicit confirmation
         env:
           CONFIRMED: ${{ inputs.confirm_release }}
         run: test "$CONFIRMED" = "true"
       - id: version
-        name: Match backend Python, Rust, and requested versions
+        name: Validate requested version and backend release contract
         env:
           REQUESTED_VERSION: ${{ inputs.version }}
         run: |
-          python - <<'PY'
-          import os, pathlib, tomllib
-          requested = os.environ["REQUESTED_VERSION"]
-          pyproject = tomllib.loads(pathlib.Path("backend/pyproject.toml").read_text())
-          cargo = tomllib.loads(pathlib.Path("backend/Cargo.toml").read_text())
-          assert requested == pyproject["project"]["version"] == cargo["package"]["version"]
-          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
-              output.write("tag=backend-v%s\n" % requested)
-          PY
+          python scripts/check_backend_release_contract.py --requested-version "$REQUESTED_VERSION"
+          printf 'tag=backend-v%s\n' "$REQUESTED_VERSION" >> "$GITHUB_OUTPUT"
 
   wheels:
     name: Backend wheel / ${{ matrix.label }}
@@ -70,7 +66,7 @@ jobs:
         with:
           python-version: "3.12"
       - name: Build locked backend wheel
-        uses: PyO3/maturin-action@86b9d133d34bc1b40018696f782949dac11bd380
+        uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
         with:
           command: build
           maturin-version: v1.14.1
@@ -118,7 +114,7 @@ jobs:
         with:
           python-version: "3.12"
       - name: Build backend sdist
-        uses: PyO3/maturin-action@86b9d133d34bc1b40018696f782949dac11bd380
+        uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
         with:
           command: sdist
           maturin-version: v1.14.1
